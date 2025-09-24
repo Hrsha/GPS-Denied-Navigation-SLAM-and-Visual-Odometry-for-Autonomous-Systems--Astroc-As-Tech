@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""
+Basic GPS-denied navigation example using visual odometry and IMU data.
+This example demonstrates the core functionality of the navigation system.
+"""
+
+import numpy as np
+import cv2
+import time
+from typing import Tuple, Optional
+
+# Import our custom modules (these will be implemented)
+try:
+    from src.navigation.visual_odometry import VisualOdometry
+    from src.sensors.camera import CameraManager
+    from src.sensors.imu import IMUManager
+    from src.navigation.sensor_fusion import SensorFusion
+    from src.utils.visualization import NavigationVisualizer
+except ImportError:
+    print("Warning: Some modules not found. This is expected for initial setup.")
+    print("Implement the modules in src/ directory to run this example.")
+
+
+class BasicNavigator:
+    """
+    Basic navigation class that demonstrates GPS-denied navigation concepts.
+    """
+    
+    def __init__(self):
+        """Initialize the navigation system components."""
+        self.position = np.array([0.0, 0.0, 0.0])  # [x, y, z] in meters
+        self.velocity = np.array([0.0, 0.0, 0.0])  # [vx, vy, vz] in m/s
+        self.orientation = np.array([0.0, 0.0, 0.0])  # [roll, pitch, yaw] in radians
+        
+        # Initialize components (placeholder for now)
+        self.camera = None
+        self.imu = None
+        self.visual_odometry = None
+        self.sensor_fusion = None
+        self.visualizer = None
+        
+        print("Basic Navigator initialized")
+        print(f"Initial position: {self.position}")
+        print(f"Initial orientation: {self.orientation}")
+    
+    def initialize_sensors(self):
+        """Initialize all sensor components."""
+        try:
+            # Initialize camera
+            self.camera = CameraManager(camera_id=0)
+            print("Camera initialized")
+            
+            # Initialize IMU
+            self.imu = IMUManager()
+            print("IMU initialized")
+            
+            # Initialize visual odometry
+            self.visual_odometry = VisualOdometry()
+            print("Visual odometry initialized")
+            
+            # Initialize sensor fusion
+            self.sensor_fusion = SensorFusion()
+            print("Sensor fusion initialized")
+            
+            # Initialize visualizer
+            self.visualizer = NavigationVisualizer()
+            print("Visualizer initialized")
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error initializing sensors: {e}")
+            print("Running in simulation mode...")
+            return False
+    
+    def simulate_sensor_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Simulate sensor data for testing purposes.
+        
+        Returns:
+            Tuple of (camera_frame, imu_data, timestamp)
+        """
+        # Simulate camera frame (640x480 RGB image)
+        camera_frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+        
+        # Simulate IMU data [ax, ay, az, gx, gy, gz, mx, my, mz]
+        imu_data = np.array([
+            0.1 * np.sin(time.time()),      # ax - simulated acceleration
+            0.1 * np.cos(time.time()),      # ay
+            9.81,                           # az - gravity
+            0.05 * np.sin(time.time() * 2), # gx - simulated gyroscope
+            0.05 * np.cos(time.time() * 2), # gy
+            0.02 * np.sin(time.time() * 0.5), # gz
+            0.3, 0.1, 0.9                   # mx, my, mz - simulated magnetometer
+        ])
+        
+        timestamp = time.time()
+        
+        return camera_frame, imu_data, timestamp
+    
+    def process_visual_odometry(self, frame: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Process visual odometry from camera frame.
+        
+        Args:
+            frame: Camera frame
+            
+        Returns:
+            Tuple of (translation, rotation) estimates
+        """
+        if self.visual_odometry:
+            return self.visual_odometry.process_frame(frame)
+        else:
+            # Simulate visual odometry output
+            translation = np.array([0.01, 0.005, 0.0])  # Small movement
+            rotation = np.array([0.0, 0.0, 0.001])     # Small rotation
+            return translation, rotation
+    
+    def update_position(self, dt: float, translation: np.ndarray, rotation: np.ndarray, imu_data: np.ndarray):
+        """
+        Update drone position and orientation based on sensor data.
+        
+        Args:
+            dt: Time delta in seconds
+            translation: Translation from visual odometry
+            rotation: Rotation from visual odometry  
+            imu_data: IMU sensor data
+        """
+        # Simple position update (in real implementation, use sensor fusion)
+        self.position += translation
+        self.orientation += rotation
+        
+        # Simple velocity estimate
+        self.velocity = translation / dt if dt > 0 else np.zeros(3)
+        
+        # Keep orientation within bounds
+        self.orientation = np.mod(self.orientation + np.pi, 2 * np.pi) - np.pi
+    
+    def run_navigation(self, duration: float = 30.0):
+        """
+        Run the navigation system for a specified duration.
+        
+        Args:
+            duration: Duration to run navigation in seconds
+        """
+        print(f"Starting navigation for {duration} seconds...")
+        
+        # Initialize sensors
+        sensors_initialized = self.initialize_sensors()
+        
+        start_time = time.time()
+        last_time = start_time
+        frame_count = 0
+        
+        try:
+            while (time.time() - start_time) < duration:
+                current_time = time.time()
+                dt = current_time - last_time
+                
+                # Get sensor data
+                if sensors_initialized and self.camera and self.imu:
+                    # Real sensor data
+                    camera_frame = self.camera.get_frame()
+                    imu_data = self.imu.get_data()
+                    timestamp = current_time
+                else:
+                    # Simulated sensor data
+                    camera_frame, imu_data, timestamp = self.simulate_sensor_data()
+                
+                # Process visual odometry
+                translation, rotation = self.process_visual_odometry(camera_frame)
+                
+                # Update position and orientation
+                self.update_position(dt, translation, rotation, imu_data)
+                
+                # Log data every second
+                if frame_count % 30 == 0:  # Assuming 30 FPS
+                    print(f"Time: {current_time - start_time:.1f}s")
+                    print(f"Position: [{self.position[0]:.3f}, {self.position[1]:.3f}, {self.position[2]:.3f}]")
+                    print(f"Orientation: [{np.degrees(self.orientation[0]):.1f}°, {np.degrees(self.orientation[1]):.1f}°, {np.degrees(self.orientation[2]):.1f}°]")
+                    print(f"Velocity: [{self.velocity[0]:.3f}, {self.velocity[1]:.3f}, {self.velocity[2]:.3f}]")
+                    print("-" * 50)
+                
+                # Visualize (if available)
+                if self.visualizer and camera_frame is not None:
+                    self.visualizer.update(camera_frame, self.position, self.orientation)
+                
+                last_time = current_time
+                frame_count += 1
+                
+                # Control loop timing (aim for ~30 FPS)
+                time.sleep(max(0, 1/30 - (time.time() - current_time)))
+                
+        except KeyboardInterrupt:
+            print("\nNavigation stopped by user")
+        except Exception as e:
+            print(f"Navigation error: {e}")
+        finally:
+            print("\nNavigation completed")
+            print(f"Final position: {self.position}")
+            print(f"Final orientation: {np.degrees(self.orientation)} degrees")
+            print(f"Total frames processed: {frame_count}")
+
+
+def main():
+    """Main function to run the basic navigation example."""
+    print("=" * 60)
+    print("GPS-Denied Drone Navigation - Basic Example")
+    print("=" * 60)
+    
+    # Create navigator
+    navigator = BasicNavigator()
+    
+    # Run navigation
+    try:
+        navigator.run_navigation(duration=30.0)  # Run for 30 seconds
+    except KeyboardInterrupt:
+        print("\nExample stopped by user")
+    
+    print("\nExample completed successfully!")
+
+
+if __name__ == "__main__":
+    main()
